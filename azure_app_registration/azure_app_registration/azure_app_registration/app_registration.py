@@ -2,6 +2,7 @@ import os
 import subprocess
 import requests
 import json
+import uuid
 
 def login_to_azure():
     print("Logging in to Azure using Entra ID...")
@@ -54,23 +55,24 @@ def add_application_id_uri(app_id):
         raise subprocess.CalledProcessError(result.returncode, update_command)
 
 def add_api_scope(app_id):
-    scope_command = [
-        "az", "ad", "app", "permission", "add",
-        "--id", app_id,
-        "--api", app_id,
-        "--api-permissions", "api://{}/API.Access=Scope".format(app_id),
-        "--oauth2-permissions", json.dumps([{
+    scope_definition = json.dumps([
+        {
             "adminConsentDescription": "API.Access",
             "adminConsentDisplayName": "API.Access",
-            "id": "API.Access",
-            "type": "User",
+            "id": str(uuid.uuid4()),
+            "type": "Admin",
             "value": "API.Access"
-        }])
+        }
+    ])
+    add_scope_command = [
+        "az", "ad", "app", "update",
+        "--id", app_id,
+        "--set", f"oauth2Permissions={scope_definition}"
     ]
-    result = subprocess.run(scope_command, capture_output=True, text=True)
+    result = subprocess.run(add_scope_command, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error adding scope to app registration: {result.stderr}")
-        raise subprocess.CalledProcessError(result.returncode, scope_command)
+        raise subprocess.CalledProcessError(result.returncode, add_scope_command)
 
 def authorize_client_app(server_app_id, client_app_id):
     authorize_command = [
