@@ -12,8 +12,6 @@ def create_app_registration(app_name, tenant_id, is_server_app):
     create_app_command = [
         "az", "ad", "app", "create",
         "--display-name", app_name,
-        "--available-to-other-tenants", "false",
-        "--oauth2-allow-implicit-flow", "true",
         "--sign-in-audience", "AzureADMyOrg"
     ]
 
