@@ -41,12 +41,31 @@ def create_client_secret(app_id):
     result = subprocess.run(create_secret_command, capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
+def add_application_id_uri(app_id):
+    app_id_uri = f"api://{app_id}"
+    update_command = [
+        "az", "ad", "app", "update",
+        "--id", app_id,
+        "--identifier-uris", app_id_uri
+    ]
+    result = subprocess.run(update_command, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error updating Application ID URI: {result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, update_command)
+
 def add_api_scope(app_id):
     scope_command = [
         "az", "ad", "app", "permission", "add",
         "--id", app_id,
         "--api", app_id,
-        "--api-permissions", "api://{}/.default=Scope".format(app_id)
+        "--api-permissions", "api://{}/API.Access=Scope".format(app_id),
+        "--oauth2-permissions", json.dumps([{
+            "adminConsentDescription": "API.Access",
+            "adminConsentDisplayName": "API.Access",
+            "id": "API.Access",
+            "type": "User",
+            "value": "API.Access"
+        }])
     ]
     result = subprocess.run(scope_command, capture_output=True, text=True)
     if result.returncode != 0:
@@ -97,6 +116,13 @@ def main():
             print(f"Failed to create server app registration for {env}. Exiting...")
             return
         server_app_id = server_app_info['appId']
+        
+        # Add Application ID URI to Server App
+        try:
+            add_application_id_uri(server_app_id)
+        except subprocess.CalledProcessError:
+            print(f"Failed to add Application ID URI to server app registration for {env}. Exiting...")
+            return
         
         # Add scope to Server App
         try:
