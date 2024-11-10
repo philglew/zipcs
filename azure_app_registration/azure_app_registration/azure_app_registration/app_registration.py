@@ -28,15 +28,18 @@ def create_client_secret(app_id):
         "az", "ad", "app", "credential", "reset",
         "--id", app_id,
         "--append",
-        "--query", "password"
+        "--query", "password",
+        "-o", "tsv"
     ]
     result = subprocess.run(create_secret_command, capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
 def assign_owner(app_id):
     # Assign the current logged in user as the owner
-    owner = subprocess.run(["az", "ad", "signed-in-user", "show", "--query", "objectId"], capture_output=True, text=True, check=True)
-    owner_id = owner.stdout.strip().replace('"', '')
+    owner = subprocess.run(["az", "ad", "signed-in-user", "show", "--query", "objectId", "-o", "tsv"], capture_output=True, text=True, check=True)
+    owner_id = owner.stdout.strip()
+    if not owner_id:
+        raise ValueError("Failed to retrieve the owner object ID.")
     subprocess.run(["az", "ad", "app", "owner", "add", "--id", app_id, "--owner-object-id", owner_id], check=True)
 
 def main():
