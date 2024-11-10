@@ -15,6 +15,13 @@ def create_app_registration(app_name, tenant_id, is_server_app):
         "--sign-in-audience", "AzureADMyOrg"
     ]
 
+    if not is_server_app:
+        create_app_command += [
+            "--web-redirect-uris", "https://global.consent.azure-apim.net/redirect/zellis", "https://oauth.powerbi.com/views/oauthredirect.html",
+            "--enable-id-token-issuance", "true",
+            "--enable-access-token-issuance", "true"
+        ]
+
     result = subprocess.run(create_app_command, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error creating app registration: {result.stderr}")
@@ -34,13 +41,29 @@ def create_client_secret(app_id):
     result = subprocess.run(create_secret_command, capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
-def assign_owner(app_id):
-    # Assign the current logged in user as the owner
-    owner = subprocess.run(["az", "ad", "signed-in-user", "show", "--query", "objectId", "-o", "tsv"], capture_output=True, text=True, check=True)
-    owner_id = owner.stdout.strip()
-    if not owner_id:
-        raise ValueError("Failed to retrieve the owner object ID.")
-    subprocess.run(["az", "ad", "app", "owner", "add", "--id", app_id, "--owner-object-id", owner_id], check=True)
+def add_api_scope(app_id):
+    scope_command = [
+        "az", "ad", "app", "permission", "add",
+        "--id", app_id,
+        "--api", app_id,
+        "--api-permissions", "api://{}/.default=Scope".format(app_id)
+    ]
+    result = subprocess.run(scope_command, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error adding scope to app registration: {result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, scope_command)
+
+def authorize_client_app(server_app_id, client_app_id):
+    authorize_command = [
+        "az", "ad", "app", "permission", "add",
+        "--id", server_app_id,
+        "--api", server_app_id,
+        "--api-permissions", f"{client_app_id}/.default=Scope"
+    ]
+    result = subprocess.run(authorize_command, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error authorizing client app: {result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, authorize_command)
 
 def main():
     # Step 1: Log in to Azure
@@ -74,7 +97,13 @@ def main():
             print(f"Failed to create server app registration for {env}. Exiting...")
             return
         server_app_id = server_app_info['appId']
-        assign_owner(server_app_id)
+        
+        # Add scope to Server App
+        try:
+            add_api_scope(server_app_id)
+        except subprocess.CalledProcessError:
+            print(f"Failed to add scope to server app registration for {env}. Exiting...")
+            return
 
         # Create Client App
         client_app_name = f"ZIP {env} - Client App"
@@ -84,22 +113,16 @@ def main():
             print(f"Failed to create client app registration for {env}. Exiting...")
             return
         client_app_id = client_app_info['appId']
-        assign_owner(client_app_id)
 
         # Create a client secret for Client App
         client_secret = create_client_secret(client_app_id)
 
-        # Add the Client App as an authorized application for the Server App
-        scope_command = [
-            "az", "ad", "app", "permission", "add",
-            "--id", server_app_id,
-            "--api", server_app_id,
-            "--api-permissions", f"{client_app_id}/.default=Scope"
-        ]
-        result = subprocess.run(scope_command, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"Error adding client app permissions: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, scope_command)
+        # Authorize the Client App on the Server App
+        try:
+            authorize_client_app(server_app_id, client_app_id)
+        except subprocess.CalledProcessError:
+            print(f"Failed to authorize client app for {env}. Exiting...")
+            return
 
         # Output the result to the user
         print("\nSuccess! Please note the following:")
